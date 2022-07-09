@@ -12,11 +12,51 @@ ARCH := x86_64
 include $(PWD)/config.env
 include $(PWD)/make/keys.mk
 include $(PWD)/make/fetch.mk
-include $(PWD)/make/extract.mk
 include $(PWD)/make/toolchain.mk
 
 .DEFAULT_GOAL := default
-default: $(OUT_DIR)/bzImage
+.PHONY: default
+default: fetch $(OUT_DIR)/bzImage
+
+# Clean repo back to initial clone state
+.PHONY: clean
+clean:
+	rm -rf cache out
+	docker image rm -f local/$(NAME)-build
+
+# Source anything required from the internet to build
+.PHONY: fetch
+fetch: \
+	toolchain \
+	keys \
+	$(OUT_DIR) \
+	$(CACHE_DIR) \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.xz \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.sign \
+	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2 \
+	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2.sig
+
+# Build latest image and run in terminal via Qemu
+.PHONY: run
+run: default
+	qemu-system-x86_64 \
+		-m 512M \
+		-nographic \
+		-initrd $(OUT_DIR)/rootfs.cpio \
+		-kernel $(OUT_DIR)/bzImage
+
+# Run ncurses busybox config menu and save output
+.PHONY: busybox-config
+busybox-config:
+	rm $(CONFIG_DIR)/busybox.config
+	make $(CONFIG_DIR)/busybox.config
+
+# Run linux config menu and save output
+.PHONY: linux-config
+linux-config:
+	rm $(CONFIG_DIR)/linux.config
+	make $(CONFIG_DIR)/linux.config
+
 
 $(CONFIG_DIR)/busybox.config:
 	$(toolchain) " \
@@ -58,8 +98,10 @@ endif
 #    	| LANG=C bsdtar --null -cf - --format=newc @- \
 #    " > $@
 
-
-$(OUT_DIR)/busybox: extract
+$(OUT_DIR)/busybox: \
+	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION) \
+	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2 \
+	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2.sig
 	$(toolchain) " \
 		cd /cache/busybox-$(BUSYBOX_VERSION) && \
 		cp /config/busybox.config .config && \
@@ -67,7 +109,11 @@ $(OUT_DIR)/busybox: extract
 		cp busybox /out/; \
 	"
 
-$(OUT_DIR)/bzImage: extract $(OUT_DIR)/rootfs.cpio
+$(OUT_DIR)/bzImage: \
+	$(OUT_DIR)/rootfs.cpio \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION) \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.xz \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.sign
 	$(toolchain) " \
 		cd /cache/linux-$(LINUX_VERSION) && \
 		cp /config/linux.config .config && \
@@ -76,10 +122,3 @@ $(OUT_DIR)/bzImage: extract $(OUT_DIR)/rootfs.cpio
 		cp arch/x86_64/boot/bzImage /out/; \
 	"
 
-.PHONY: run
-run:
-	qemu-system-x86_64 \
-		-m 512M \
-		-nographic \
-		-initrd $(OUT_DIR)/rootfs.cpio \
-		-kernel $(OUT_DIR)/bzImage
