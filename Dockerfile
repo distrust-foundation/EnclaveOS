@@ -10,4 +10,8 @@ RUN apt update && \
         bison \
         libncurses-dev \
         bc \
-        libelf-dev
+        libelf-dev \
+        libarchive-tools \
+        libssl-dev \
+        fakeroot \
+        cpio

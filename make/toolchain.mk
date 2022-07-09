@@ -1,6 +1,6 @@
 .PHONY: toolchain-shell
 build-shell: toolchain
-	docker run -it local/$(NAME)-build bash
+	$(toolchain)
 
 .PHONY: toolchain
 toolchain:
