@@ -1,35 +1,16 @@
 #!/bin/busybox sh
 
-echo "booted"
+busybox mount -t devtmpfs none /dev
+busybox mkdir -p /dev/pts
+busybox mount -t devpts none /dev/pts
+busybox mkdir /sys
+busybox mount -t sysfs none /sys
+busybox mkdir -p /usr/bin /sbin /usr/sbin /sbin /proc /etc
+busybox mount -t proc none /proc
 
 /bin/busybox --install
 
-function halt {
-   echo "Something failed: $1"
-   echo "Will reboot in 10 seconds"
-   umount /eos
-   umount /main
-   umount /boot
-   umount /extra
-   sleep 10
-   reboot -f
-}
-
-/usr/bin/busybox --install
-
-mount -t proc none /proc
-mount -t devtmpfs none /dev
-mount -t sysfs none /sys
-mount -t securityfs none /sys/kernel/security
-mkdir /dev/pts
-mount -t devpts none /dev/pts
-
-echo -n 3 > /proc/sys/kernel/yama/ptrace_scope
-
-echo -n 2 > /proc/sys/kernel/kptr_restrict
-
 touch /etc/hosts
 touch /etc/fstab
-
 
 /bin/busybox sh
