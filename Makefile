@@ -42,7 +42,6 @@ run: default
 	qemu-system-x86_64 \
 		-m 512M \
 		-nographic \
-		-initrd $(OUT_DIR)/rootfs.cpio \
 		-kernel $(OUT_DIR)/bzImage
 
 # Run ncurses busybox config menu and save output
@@ -56,7 +55,6 @@ busybox-config:
 linux-config:
 	rm $(CONFIG_DIR)/linux.config
 	make $(CONFIG_DIR)/linux.config
-
 
 $(CONFIG_DIR)/busybox.config:
 	$(toolchain) " \
@@ -72,32 +70,6 @@ $(CONFIG_DIR)/linux.config:
 		cp .config /config/linux.config; \
 	"
 
-$(OUT_DIR)/rootfs.cpio: $(OUT_DIR)/busybox
-	mkdir -p $(CACHE_DIR)/rootfs/bin
-ifdef DEBUG
-	cp $(OUT_DIR)/busybox $(CACHE_DIR)/rootfs/bin;
-	cp $(SCRIPTS_DIR)/busybox_init $(CACHE_DIR)/rootfs/init;
-	chmod +x $(CACHE_DIR)/rootfs/init;
-endif
-	$(toolchain) " \
-		cd /cache/rootfs \
-		&& find . \
-		| cpio -o -H newc \
-		| gzip -f - > /out/rootfs.cpio \
-	"
-
-# Currently broken determinism attempt
-#    $(toolchain) " \
-#    	cd /cache/rootfs \
-#    	&& mkdir -p dev \
-#    	&& fakeroot mknod -m 0622 dev/console c 5 1 \
-#    	&& find . -mindepth 1 -execdir touch -hcd "@0" "{}" + \
-#    	&& find . -mindepth 1 -printf '%P\0' \
-#    	| sort -z \
-#    	| LANG=C bsdtar --uid 0 --gid 0 --null -cnf - -T - \
-#    	| LANG=C bsdtar --null -cf - --format=newc @- \
-#    " > $@
-
 $(OUT_DIR)/busybox: \
 	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION) \
 	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2 \
@@ -107,6 +79,27 @@ $(OUT_DIR)/busybox: \
 		cp /config/busybox.config .config && \
 		make -j$(CPUS) busybox && \
 		cp busybox /out/; \
+	"
+
+$(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION)
+	$(toolchain) " \
+		cd /cache/linux-$(LINUX_VERSION) && \
+		gcc usr/gen_init_cpio.c -o usr/gen_init_cpio \
+	"
+
+$(OUT_DIR)/rootfs.cpio: \
+	$(OUT_DIR)/busybox \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio
+	mkdir -p $(CACHE_DIR)/rootfs/bin
+	cp $(SCRIPTS_DIR)/busybox_init $(CACHE_DIR)/rootfs/init
+	cp $(OUT_DIR)/busybox $(CACHE_DIR)/rootfs/bin/
+	$(toolchain) " \
+		cd /cache/rootfs \
+		&& find . -mindepth 1 -execdir touch -hcd "@0" "{}" + \
+		&& find . -mindepth 1 -printf '%P\0' \
+		&& cd /cache/linux-$(LINUX_VERSION) \
+		&& usr/gen_initramfs.sh -o /out/rootfs.cpio /config/rootfs.list; \
 	"
 
 $(OUT_DIR)/bzImage: \
@@ -121,4 +114,3 @@ $(OUT_DIR)/bzImage: \
 		make -j$(CPUS) ARCH=$(ARCH) bzImage && \
 		cp arch/x86_64/boot/bzImage /out/; \
 	"
-

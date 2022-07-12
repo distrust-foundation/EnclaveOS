@@ -3,9 +3,7 @@
 busybox mount -t devtmpfs none /dev
 busybox mkdir -p /dev/pts
 busybox mount -t devpts none /dev/pts
-busybox mkdir /sys
 busybox mount -t sysfs none /sys
-busybox mkdir -p /usr/bin /sbin /usr/sbin /sbin /proc /etc
 busybox mount -t proc none /proc
 
 /bin/busybox --install
