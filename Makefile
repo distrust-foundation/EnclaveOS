@@ -82,7 +82,10 @@ $(OUT_DIR)/busybox: \
 	"
 
 $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
-	$(CACHE_DIR)/linux-$(LINUX_VERSION)
+	$(CACHE_DIR)/linux-$(LINUX_VERSION) \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION) \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.xz \
+	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.sign
 	$(toolchain) " \
 		cd /cache/linux-$(LINUX_VERSION) && \
 		gcc usr/gen_init_cpio.c -o usr/gen_init_cpio \
@@ -95,22 +98,22 @@ $(OUT_DIR)/rootfs.cpio: \
 	cp $(SCRIPTS_DIR)/busybox_init $(CACHE_DIR)/rootfs/init
 	cp $(OUT_DIR)/busybox $(CACHE_DIR)/rootfs/bin/
 	$(toolchain) " \
-		cd /cache/rootfs \
-		&& find . -mindepth 1 -execdir touch -hcd "@0" "{}" + \
-		&& find . -mindepth 1 -printf '%P\0' \
-		&& cd /cache/linux-$(LINUX_VERSION) \
-		&& usr/gen_initramfs.sh -o /out/rootfs.cpio /config/rootfs.list; \
+		cd /cache/rootfs && \
+		find . -mindepth 1 -execdir touch -hcd "@0" "{}" + && \
+		find . -mindepth 1 -printf '%P\0' && \
+		cd /cache/linux-$(LINUX_VERSION) && \
+		usr/gen_initramfs.sh -o /out/rootfs.cpio /config/rootfs.list && \
+		cpio -itv < /out/rootfs.cpio && \
+		sha256sum /out/rootfs.cpio; \
 	"
 
 $(OUT_DIR)/bzImage: \
-	$(OUT_DIR)/rootfs.cpio \
-	$(CACHE_DIR)/linux-$(LINUX_VERSION) \
-	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.xz \
-	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.sign
+	$(OUT_DIR)/rootfs.cpio
 	$(toolchain) " \
 		cd /cache/linux-$(LINUX_VERSION) && \
 		cp /config/linux.config .config && \
 		make olddefconfig && \
 		make -j$(CPUS) ARCH=$(ARCH) bzImage && \
-		cp arch/x86_64/boot/bzImage /out/; \
+		cp arch/x86_64/boot/bzImage /out/ && \
+		sha256sum /out/bzImage; \
 	"
