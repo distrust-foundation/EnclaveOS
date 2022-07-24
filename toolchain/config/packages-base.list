@@ -1,0 +1,12 @@
+git
+curl
+build-essential
+flex
+bison
+libncurses-dev
+bc
+libelf-dev
+libarchive-tools
+libssl-dev
+fakeroot
+cpio
