@@ -23,6 +23,7 @@ define toolchain
 		--volume $(PWD)/$(KEY_DIR):/keys \
 		--volume $(PWD)/$(CACHE_DIR):/cache \
 		--volume $(PWD)/$(OUT_DIR):/out \
+		--volume $(PWD)/$(SRC_DIR):/src \
 		--volume $(PWD)/$(SCRIPTS_DIR):/scripts \
 		--env GNUPGHOME=/cache/.gnupg \
 		--env ARCH=$(ARCH) \

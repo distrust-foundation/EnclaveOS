@@ -1,6 +1,7 @@
-DEBUG := true
+DEBUG := false
 OUT_DIR := out
 KEY_DIR := keys
+SRC_DIR := src
 TARGET := local
 CACHE_DIR := cache
 CONFIG_DIR := targets/$(TARGET)
@@ -100,6 +101,14 @@ $(OUT_DIR)/busybox: \
 		cp busybox /out/; \
 	")
 
+$(OUT_DIR)/sample_init:
+	$(call toolchain,$(USER)," \
+		gcc \
+			-static \
+			-static-libgcc /src/sample/init.c \
+			-o /out/sample_init; \
+	")
+
 $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION) \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION) \
@@ -112,10 +121,16 @@ $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
 
 $(OUT_DIR)/rootfs.cpio: \
 	$(OUT_DIR)/busybox \
+	$(OUT_DIR)/sample_init \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio
 	mkdir -p $(CACHE_DIR)/rootfs/bin
+ifeq ($(DEBUG), true)
+	cp $(OUT_DIR)/sample_init $(CACHE_DIR)/rootfs/sample_init
 	cp $(SCRIPTS_DIR)/busybox_init $(CACHE_DIR)/rootfs/init
 	cp $(OUT_DIR)/busybox $(CACHE_DIR)/rootfs/bin/
+else
+	cp $(OUT_DIR)/sample_init $(CACHE_DIR)/rootfs/init
+endif
 	$(call toolchain,$(USER)," \
 		cd /cache/rootfs && \
 		find . -mindepth 1 -execdir touch -hcd "@0" "{}" + && \
