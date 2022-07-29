@@ -20,11 +20,10 @@ define toolchain
 		--user=$(1) \
 		--platform=linux/$(ARCH) \
 		--volume $(PWD)/$(CONFIG_DIR):/config \
-		--volume $(PWD)/$(KEY_DIR):/keys \
 		--volume $(PWD)/$(CACHE_DIR):/cache \
+		--volume $(PWD)/$(KEY_DIR):/keys \
 		--volume $(PWD)/$(OUT_DIR):/out \
 		--volume $(PWD)/$(SRC_DIR):/src \
-		--volume $(PWD)/$(SCRIPTS_DIR):/scripts \
 		--env GNUPGHOME=/cache/.gnupg \
 		--env ARCH=$(ARCH) \
 		--env KBUILD_BUILD_USER=$(KBUILD_BUILD_USER) \

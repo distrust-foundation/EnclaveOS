@@ -4,14 +4,14 @@ KEY_DIR := keys
 SRC_DIR := src
 TARGET := local
 CACHE_DIR := cache
-CONFIG_DIR := targets/$(TARGET)
+CONFIG_DIR := config
 TOOLCHAIN_DIR := toolchain
-SCRIPTS_DIR := scripts
+SRC_DIR := src
 USER := $(shell id -g):$(shell id -g)
 CPUS := $(shell nproc)
 ARCH := x86_64
 
-include $(PWD)/config.env
+include $(PWD)/config/global.env
 include $(PWD)/make/keys.mk
 include $(PWD)/make/fetch.mk
 include $(PWD)/toolchain/Makefile
@@ -65,8 +65,8 @@ busybox-config:
 # Run linux config menu and save output
 .PHONY: linux-config
 linux-config:
-	rm $(CONFIG_DIR)/linux.config
-	make $(CONFIG_DIR)/linux.config
+	rm $(CONFIG_DIR)/$(TARGET)/linux.config
+	make $(CONFIG_DIR)/$(TARGET)/linux.config
 
 # This can likely be eliminated with path fixes in toolchain/Makefile
 $(OUT_DIR)/toolchain.tar:
@@ -83,11 +83,11 @@ $(CONFIG_DIR)/busybox.config:
 		cp .config /config/busybox.config; \
 	")
 
-$(CONFIG_DIR)/linux.config:
+$(CONFIG_DIR)/$(TARGET)/linux.config:
 	$(call toolchain,$(USER)," \
 		cd /cache/linux-$(LINUX_VERSION) && \
 		make menuconfig && \
-		cp .config /config/linux.config; \
+		cp .config /config/$(TARGET)/linux.config; \
 	")
 
 $(OUT_DIR)/busybox: \
@@ -126,7 +126,7 @@ $(OUT_DIR)/rootfs.cpio: \
 	mkdir -p $(CACHE_DIR)/rootfs/bin
 ifeq ($(DEBUG), true)
 	cp $(OUT_DIR)/sample_init $(CACHE_DIR)/rootfs/sample_init
-	cp $(SCRIPTS_DIR)/busybox_init $(CACHE_DIR)/rootfs/init
+	cp $(SRC_DIR)/scripts/busybox_init $(CACHE_DIR)/rootfs/init
 	cp $(OUT_DIR)/busybox $(CACHE_DIR)/rootfs/bin/
 else
 	cp $(OUT_DIR)/sample_init $(CACHE_DIR)/rootfs/init
@@ -136,7 +136,9 @@ endif
 		find . -mindepth 1 -execdir touch -hcd "@0" "{}" + && \
 		find . -mindepth 1 -printf '%P\0' && \
 		cd /cache/linux-$(LINUX_VERSION) && \
-		usr/gen_initramfs.sh -o /out/rootfs.cpio /config/rootfs.list && \
+		usr/gen_initramfs.sh \
+			-o /out/rootfs.cpio \
+			/config/$(TARGET)/rootfs.list && \
 		cpio -itv < /out/rootfs.cpio && \
 		sha256sum /out/rootfs.cpio; \
 	")
@@ -145,7 +147,7 @@ $(OUT_DIR)/bzImage: \
 	$(OUT_DIR)/rootfs.cpio
 	$(call toolchain,$(USER)," \
 		cd /cache/linux-$(LINUX_VERSION) && \
-		cp /config/linux.config .config && \
+		cp /config/$(TARGET)/linux.config .config && \
 		make olddefconfig && \
 		make -j$(CPUS) ARCH=$(ARCH) bzImage && \
 		cp arch/x86_64/boot/bzImage /out/ && \
