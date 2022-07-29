@@ -5,16 +5,14 @@ SRC_DIR := src
 TARGET := local
 CACHE_DIR := cache
 CONFIG_DIR := config
-TOOLCHAIN_DIR := toolchain
+TOOLCHAIN_DIR := config/toolchain
 SRC_DIR := src
 USER := $(shell id -g):$(shell id -g)
 CPUS := $(shell nproc)
 ARCH := x86_64
 
 include $(PWD)/config/global.env
-include $(PWD)/make/keys.mk
-include $(PWD)/make/fetch.mk
-include $(PWD)/toolchain/Makefile
+include $(TOOLCHAIN_DIR)/Makefile
 
 .DEFAULT_GOAL := default
 .PHONY: default
@@ -59,8 +57,8 @@ run: default
 # Run ncurses busybox config menu and save output
 .PHONY: busybox-config
 busybox-config:
-	rm $(CONFIG_DIR)/busybox.config
-	make $(CONFIG_DIR)/busybox.config
+	rm $(CONFIG_DIR)/debug/busybox.config
+	make $(CONFIG_DIR)/debug/busybox.config
 
 # Run linux config menu and save output
 .PHONY: linux-config
@@ -68,19 +66,96 @@ linux-config:
 	rm $(CONFIG_DIR)/$(TARGET)/linux.config
 	make $(CONFIG_DIR)/$(TARGET)/linux.config
 
+.PHONY: keys
+keys: \
+	$(KEY_DIR)/$(LINUX_KEY).asc \
+	$(KEY_DIR)/$(BUSYBOX_KEY).asc
+
+$(KEY_DIR)/$(LINUX_KEY).asc:
+	$(call fetch_pgp_key,$(LINUX_KEY))
+
+$(KEY_DIR)/$(BUSYBOX_KEY).asc:
+	$(call fetch_pgp_key,,$(BUSYBOX_KEY))
+
+define fetch_pgp_key
+	mkdir -p $(KEY_DIR) && \
+	$(toolchain) ' \
+		for server in \
+    	    ha.pool.sks-keyservers.net \
+    	    hkp://keyserver.ubuntu.com:80 \
+    	    hkp://p80.pool.sks-keyservers.net:80 \
+    	    pgp.mit.edu \
+    	; do \
+			echo "Trying: $${server}"; \
+    	   	gpg \
+    	   		--recv-key \
+    	   		--keyserver "$${server}" \
+    	   		--keyserver-options timeout=10 \
+    	   		--recv-keys "$(1)" \
+    	   	&& break; \
+    	done; \
+		gpg --export -a $(1) > $(KEY_DIR)/$(1).asc; \
+	'
+endef
+
+$(OUT_DIR):
+	mkdir -p $(OUT_DIR)
+
+$(CACHE_DIR):
+	mkdir -p $(CACHE_DIR)
+
+$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2.sig:
+	curl \
+		--url $(BUSYBOX_SERVER)/busybox-$(BUSYBOX_VERSION).tar.bz2.sig \
+		--output $(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2.sig
+
+$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2:
+	curl \
+		--url $(BUSYBOX_SERVER)/busybox-$(BUSYBOX_VERSION).tar.bz2 \
+		--output $(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2
+
+$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.sign:
+	curl \
+		--url $(LINUX_SERVER)/linux-$(LINUX_VERSION).tar.sign \
+		--output $(CACHE_DIR)/linux-$(LINUX_VERSION).tar.sign
+
+$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.xz:
+	curl \
+		--url $(LINUX_SERVER)/linux-$(LINUX_VERSION).tar.xz \
+		--output $(CACHE_DIR)/linux-$(LINUX_VERSION).tar.xz
+
+$(CACHE_DIR)/linux-$(LINUX_VERSION).tar:
+	xz -d $(CACHE_DIR)/linux-$(LINUX_VERSION).tar.xz
+
+$(CACHE_DIR)/linux-$(LINUX_VERSION): $(CACHE_DIR)/linux-$(LINUX_VERSION).tar
+	$(call toolchain,$(USER), " \
+		cd /cache && \
+		gpg --import /keys/$(LINUX_KEY).asc && \
+		gpg --verify linux-$(LINUX_VERSION).tar.sign && \
+		tar xf linux-$(LINUX_VERSION).tar; \
+	")
+
+$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION):
+	$(call toolchain,$(USER), " \
+		cd /cache && \
+		gpg --import /keys/$(BUSYBOX_KEY).asc && \
+		gpg --verify busybox-$(BUSYBOX_VERSION).tar.bz2.sig && \
+		tar -xf busybox-$(BUSYBOX_VERSION).tar.bz2 \
+	")
+
 # This can likely be eliminated with path fixes in toolchain/Makefile
 $(OUT_DIR)/toolchain.tar:
 	ARCH=$(ARCH) \
-	OUT_DIR=../$(OUT_DIR) \
+	OUT_DIR=../../$(OUT_DIR) \
 	DEBIAN_HASH=$(DEBIAN_HASH) \
 	$(MAKE) -C $(TOOLCHAIN_DIR) \
-	../$(OUT_DIR)/toolchain.tar
+	../../$(OUT_DIR)/toolchain.tar
 
-$(CONFIG_DIR)/busybox.config:
+$(CONFIG_DIR)/debug/busybox.config:
 	$(call toolchain,$(USER), " \
 		cd /cache/busybox-$(BUSYBOX_VERSION) && \
 		KCONFIG_NOTIMESTAMP=1 make menuconfig && \
-		cp .config /config/busybox.config; \
+		cp .config /config/debug/busybox.config; \
 	")
 
 $(CONFIG_DIR)/$(TARGET)/linux.config:
@@ -96,17 +171,17 @@ $(OUT_DIR)/busybox: \
 	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2.sig
 	$(call toolchain,$(USER)," \
 		cd /cache/busybox-$(BUSYBOX_VERSION) && \
-		cp /config/busybox.config .config && \
+		cp /config/debug/busybox.config .config && \
 		make -j$(CPUS) busybox && \
 		cp busybox /out/; \
 	")
 
-$(OUT_DIR)/sample_init:
+$(OUT_DIR)/init:
 	$(call toolchain,$(USER)," \
 		gcc \
 			-static \
-			-static-libgcc /src/sample/init.c \
-			-o /out/sample_init; \
+			-static-libgcc /src/init.c \
+			-o /out/init; \
 	")
 
 $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
@@ -121,15 +196,15 @@ $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
 
 $(OUT_DIR)/rootfs.cpio: \
 	$(OUT_DIR)/busybox \
-	$(OUT_DIR)/sample_init \
+	$(OUT_DIR)/init \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio
 	mkdir -p $(CACHE_DIR)/rootfs/bin
 ifeq ($(DEBUG), true)
-	cp $(OUT_DIR)/sample_init $(CACHE_DIR)/rootfs/sample_init
+	cp $(OUT_DIR)/init $(CACHE_DIR)/rootfs/real_init
 	cp $(SRC_DIR)/scripts/busybox_init $(CACHE_DIR)/rootfs/init
 	cp $(OUT_DIR)/busybox $(CACHE_DIR)/rootfs/bin/
 else
-	cp $(OUT_DIR)/sample_init $(CACHE_DIR)/rootfs/init
+	cp $(OUT_DIR)/init $(CACHE_DIR)/rootfs/init
 endif
 	$(call toolchain,$(USER)," \
 		cd /cache/rootfs && \
