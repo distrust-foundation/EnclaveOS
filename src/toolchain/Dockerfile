@@ -1,5 +1,5 @@
 ARG DEBIAN_HASH
-FROM debian@sha256:${DEBIAN_HASH}
+FROM debian@sha256:${DEBIAN_HASH} as build
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -14,3 +14,9 @@ ARG SCRIPTS_DIR
 ADD ${SCRIPTS_DIR} /scripts
 
 RUN packages-install
+
+#ARG RUST_REF
+#RUN build-rust
+
+#ARG CARGO_REF
+#RUN build-cargo

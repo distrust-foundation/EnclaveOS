@@ -3,7 +3,7 @@ set -e;
 
 ARCH=$(uname -m)
 
-cp /config/* /etc/apt/
+cp /config/toolchain/* /etc/apt/
 
 apt-get update
 until apt-get install --download-only --reinstall --allow-downgrades -y $(cat /etc/apt/packages-${ARCH}.list); do

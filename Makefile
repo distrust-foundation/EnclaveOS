@@ -5,14 +5,12 @@ SRC_DIR := src
 TARGET := local
 CACHE_DIR := cache
 CONFIG_DIR := config
-TOOLCHAIN_DIR := config/toolchain
 SRC_DIR := src
 USER := $(shell id -g):$(shell id -g)
 CPUS := $(shell nproc)
 ARCH := x86_64
 
 include $(PWD)/config/global.env
-include $(TOOLCHAIN_DIR)/Makefile
 
 .DEFAULT_GOAL := default
 .PHONY: default
@@ -32,7 +30,7 @@ toolchain-shell: $(OUT_DIR)/toolchain.tar
 # Pin all packages in toolchain container to latest versions
 .PHONY: toolchain-update
 toolchain-update:
-	$(call toolchain,root,toolchain-update )
+	$(call toolchain,root,packages-update )
 
 # Source anything required from the internet to build
 .PHONY: fetch
@@ -44,7 +42,8 @@ fetch: \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.xz \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.sign \
 	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2 \
-	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2.sig
+	$(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2.sig \
+	$(CACHE_DIR)/aws-nitro-enclaves-image-format/.git/HEAD
 
 # Build latest image and run in terminal via Qemu
 .PHONY: run
@@ -79,7 +78,7 @@ $(KEY_DIR)/$(BUSYBOX_KEY).asc:
 
 define fetch_pgp_key
 	mkdir -p $(KEY_DIR) && \
-	$(toolchain) ' \
+	$(call toolchain,$(USER), " \
 		for server in \
     	    ha.pool.sks-keyservers.net \
     	    hkp://keyserver.ubuntu.com:80 \
@@ -95,7 +94,7 @@ define fetch_pgp_key
     	   	&& break; \
     	done; \
 		gpg --export -a $(1) > $(KEY_DIR)/$(1).asc; \
-	'
+	")
 endef
 
 $(OUT_DIR):
@@ -103,6 +102,17 @@ $(OUT_DIR):
 
 $(CACHE_DIR):
 	mkdir -p $(CACHE_DIR)
+
+$(CACHE_DIR)/aws-nitro-enclaves-image-format/.git/HEAD:
+	$(call toolchain,$(USER), " \
+		cd /cache; \
+		git clone https://github.com/aws/aws-nitro-enclaves-image-format.git; \
+		cd aws-nitro-enclaves-image-format; \
+		git checkout $(AWS_EIF_REF); \
+		git rev-parse --verify HEAD | grep -q $(AWS_EIF_REF) || { \
+			echo 'Error: Git ref/branch collision.'; exit 1; \
+		}; \
+	")
 
 $(CACHE_DIR)/busybox-$(BUSYBOX_VERSION).tar.bz2.sig:
 	curl \
@@ -143,13 +153,44 @@ $(CACHE_DIR)/busybox-$(BUSYBOX_VERSION):
 		tar -xf busybox-$(BUSYBOX_VERSION).tar.bz2 \
 	")
 
-# This can likely be eliminated with path fixes in toolchain/Makefile
 $(OUT_DIR)/toolchain.tar:
-	ARCH=$(ARCH) \
-	OUT_DIR=../../$(OUT_DIR) \
-	DEBIAN_HASH=$(DEBIAN_HASH) \
-	$(MAKE) -C $(TOOLCHAIN_DIR) \
-	../../$(OUT_DIR)/toolchain.tar
+	DOCKER_BUILDKIT=1 \
+	docker build \
+		--tag local/$(NAME)-build \
+		--build-arg DEBIAN_HASH=$(DEBIAN_HASH) \
+		--build-arg RUST_REF=$(RUST_REF) \
+		--build-arg CARGO_REF=$(CARGO_REF) \
+		--build-arg CONFIG_DIR=$(CONFIG_DIR) \
+		--build-arg SCRIPTS_DIR=$(SRC_DIR)/toolchain/scripts \
+		-f $(SRC_DIR)/toolchain/Dockerfile \
+		.
+	docker save "local/$(NAME)-build" -o "$@"
+
+define toolchain
+	docker load -i $(OUT_DIR)/toolchain.tar
+	docker run \
+		--rm \
+		--tty \
+		--interactive \
+		--user=$(1) \
+		--platform=linux/$(ARCH) \
+		--volume $(PWD)/$(CONFIG_DIR):/config \
+		--volume $(PWD)/$(CACHE_DIR):/cache \
+		--volume $(PWD)/$(KEY_DIR):/keys \
+		--volume $(PWD)/$(OUT_DIR):/out \
+		--volume $(PWD)/$(SRC_DIR):/src \
+		--env GNUPGHOME=/cache/.gnupg \
+		--env ARCH=$(ARCH) \
+		--env KBUILD_BUILD_USER=$(KBUILD_BUILD_USER) \
+		--env KBUILD_BUILD_HOST=$(KBUILD_BUILD_HOST) \
+		--env KBUILD_BUILD_VERSION=$(KBUILD_BUILD_VERSION) \
+		--env KBUILD_BUILD_TIMESTAMP=$(KBUILD_BUILD_TIMESTAMP) \
+		--env KCONFIG_NOTIMESTAMP=$(KCONFIG_NOTIMESTAMP) \
+		--env SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
+		local/$(NAME)-build \
+		bash -c $(2)
+endef
+
 
 $(CONFIG_DIR)/debug/busybox.config:
 	$(call toolchain,$(USER), " \
@@ -180,7 +221,7 @@ $(OUT_DIR)/init:
 	$(call toolchain,$(USER)," \
 		gcc \
 			-static \
-			-static-libgcc /src/init.c \
+			-static-libgcc /src/init/init.c \
 			-o /out/init; \
 	")
 
@@ -194,26 +235,36 @@ $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
 		gcc usr/gen_init_cpio.c -o usr/gen_init_cpio \
 	")
 
+$(OUT_DIR)/eif_build:
+	$(call toolchain,$(USER)," \
+		cd /cache/aws-nitro-enclaves-image-format \
+		&& CARGO_HOME=/cache/cargo cargo build --example eif_build \
+		&& cp target/debug/examples/eif_build /out; \
+	")
+
 $(OUT_DIR)/rootfs.cpio: \
 	$(OUT_DIR)/busybox \
 	$(OUT_DIR)/init \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio
-	mkdir -p $(CACHE_DIR)/rootfs/bin
+	mkdir -p $(CACHE_DIR)/$(TARGET)/rootfs/bin
+	cp $(CONFIG_DIR)/$(TARGET)/rootfs.list $(CACHE_DIR)/$(TARGET)/rootfs.list
 ifeq ($(DEBUG), true)
-	cp $(OUT_DIR)/init $(CACHE_DIR)/rootfs/real_init
-	cp $(SRC_DIR)/scripts/busybox_init $(CACHE_DIR)/rootfs/init
-	cp $(OUT_DIR)/busybox $(CACHE_DIR)/rootfs/bin/
+	cp $(OUT_DIR)/init $(CACHE_DIR)/$(TARGET)/rootfs/real_init
+	cp $(SRC_DIR)/scripts/busybox_init $(CACHE_DIR)/$(TARGET)/rootfs/init
+	cp $(OUT_DIR)/busybox $(CACHE_DIR)/$(TARGET)/rootfs/bin/
+	echo "file /bin/busybox /cache/rootfs/bin/busybox 0755 0 0" \
+		> $(CACHE_DIR)/$(TARGET)/rootfs.list
 else
-	cp $(OUT_DIR)/init $(CACHE_DIR)/rootfs/init
+	cp $(OUT_DIR)/init $(CACHE_DIR)/$(TARGET)/rootfs/init
 endif
 	$(call toolchain,$(USER)," \
-		cd /cache/rootfs && \
+		cd /cache/$(TARGET)/rootfs && \
 		find . -mindepth 1 -execdir touch -hcd "@0" "{}" + && \
 		find . -mindepth 1 -printf '%P\0' && \
 		cd /cache/linux-$(LINUX_VERSION) && \
 		usr/gen_initramfs.sh \
 			-o /out/rootfs.cpio \
-			/config/$(TARGET)/rootfs.list && \
+			/cache/$(TARGET)/rootfs.list && \
 		cpio -itv < /out/rootfs.cpio && \
 		sha256sum /out/rootfs.cpio; \
 	")
@@ -228,3 +279,17 @@ $(OUT_DIR)/bzImage: \
 		cp arch/x86_64/boot/bzImage /out/ && \
 		sha256sum /out/bzImage; \
 	")
+
+$(OUT_DIR)/nitro.eif: \
+	$(OUT_DIR)/eif_build \
+	$(OUT_DIR)/bzImage \
+	$(OUT_DIR)/rootfs.cpio
+	$(call toolchain,$(USER)," \
+		/out/eif_build \
+			--kernel /out/bzImage \
+			--kernel_config /config/$(TARGET)/linux.config \
+			--cmdline "init=/init" \
+			--ramdisk /out/rootfs.cpio \
+			--output /out/nitro.eif \
+	")
+

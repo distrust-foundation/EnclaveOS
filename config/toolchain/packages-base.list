@@ -10,3 +10,9 @@ libarchive-tools
 libssl-dev
 fakeroot
 cpio
+python3
+ninja-build
+cmake
+musl-tools
+cargo
+pkg-config
