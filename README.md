@@ -1,6 +1,6 @@
-# AppOS #
+# EnclaveOS #
 
-<https://github.com/distrust-foundation/appos>
+<https://github.com/distrust-foundation/enclaveos>
 
 ## About ##
 
