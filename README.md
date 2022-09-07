@@ -14,12 +14,12 @@ security applications.
 
 ## Platforms ##
 
-| Platform                   | Target  | Status   | Verified boot Method |
-|----------------------------|:-------:|:--------:|:--------------------:|
-| Generic/Qemu               | generic | working  | Safeboot or Heads    |
-| AWS Nitro Enclaves         | aws     | building | HOTP via Nitrokey    |
-| GCP Confidential Compute   | gcp     | research | vTPM 2.0 attestation |
-| Azure Confidential VMs     | azure   | research | vTPM 2.0 attestation |
+| Platform                   | Target  | Status   | Verified boot Method  |
+|----------------------------|:-------:|:--------:|:---------------------:|
+| Generic/Qemu               | generic | working  | Safeboot or Heads     |
+| AWS Nitro Enclaves         | aws     | building | Nitro attestation API |
+| GCP Confidential Compute   | gcp     | research | vTPM 2.0 attestation  |
+| Azure Confidential VMs     | azure   | research | vTPM 2.0 attestation  |
 
 ## Features ##
 
