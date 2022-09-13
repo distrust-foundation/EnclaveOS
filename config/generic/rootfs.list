@@ -8,4 +8,4 @@ dir  /bin                                               0755 0 0
 dir  /sbin                                              0755 0 0
 dir  /usr/bin                                           0755 0 0
 dir  /usr/sbin                                          0755 0 0
-file /init         /cache/local/rootfs/init             0755 0 0
+file /init         /cache/generic/rootfs/init           0755 0 0

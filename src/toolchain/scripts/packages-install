@@ -6,6 +6,7 @@ ARCH=$(uname -m)
 cp /config/toolchain/* /etc/apt/
 
 apt-get update
+
 until apt-get install --download-only --reinstall --allow-downgrades -y $(cat /etc/apt/packages-${ARCH}.list); do
     echo "apt install failed. Likely throttled. Retrying in 10 mins...";
     sleep 600;
@@ -19,6 +20,9 @@ done;
 ) > /etc/apt/package-hashes-${ARCH}-compare.txt
 
 diff /etc/apt/package-hashes-${ARCH}{,-compare}.txt
+
+echo "made it here"
+sleep 10
 
 apt-get install --allow-downgrades -y $(cat /etc/apt/packages-${ARCH}.list)
 rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/* /tmp/* /var/tmp/*;

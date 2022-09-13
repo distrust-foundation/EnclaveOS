@@ -2,19 +2,26 @@ DEBUG := false
 OUT_DIR := out
 KEY_DIR := keys
 SRC_DIR := src
-TARGET := local
+TARGET := generic
 CACHE_DIR := cache
 CONFIG_DIR := config
 SRC_DIR := src
 USER := $(shell id -g):$(shell id -g)
 CPUS := $(shell nproc)
 ARCH := x86_64
+TARGET_NAME := bzImage
 
 include $(PWD)/config/global.env
 
+ifeq ($(TARGET), aws)
+TARGET_NAME := nitro.eif
+endif
+
 .DEFAULT_GOAL := default
 .PHONY: default
-default: fetch $(OUT_DIR)/bzImage
+default: \
+	fetch \
+	$(OUT_DIR)/$(TARGET)/$(TARGET_NAME)
 
 # Clean repo back to initial clone state
 .PHONY: clean
@@ -30,13 +37,24 @@ toolchain-shell: $(OUT_DIR)/toolchain.tar
 # Pin all packages in toolchain container to latest versions
 .PHONY: toolchain-update
 toolchain-update:
-	$(call toolchain,root,packages-update )
+	docker run \
+		--rm \
+		--env LOCAL_USER=$(USER) \
+		--platform=linux/$(ARCH) \
+		--volume $(PWD)/$(CONFIG_DIR):/config \
+		--volume $(PWD)/$(SRC_DIR)/toolchain/scripts:/usr/local/bin \
+		--env GNUPGHOME=/cache/.gnupg \
+		--env ARCH=$(ARCH) \
+		--interactive \
+		--tty \
+		debian@sha256:$(DEBIAN_HASH) \
+		bash -c /usr/local/bin/packages-update
 
 # Source anything required from the internet to build
 .PHONY: fetch
 fetch: \
 	keys \
-	$(OUT_DIR) \
+	$(OUT_DIR)/$(TARGET) \
 	$(OUT_DIR)/toolchain.tar \
 	$(CACHE_DIR) \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION).tar.xz \
@@ -97,8 +115,8 @@ define fetch_pgp_key
 	")
 endef
 
-$(OUT_DIR):
-	mkdir -p $(OUT_DIR)
+$(OUT_DIR)/$(TARGET):
+	mkdir -p $(OUT_DIR)/$(TARGET)
 
 $(CACHE_DIR):
 	mkdir -p $(CACHE_DIR)
@@ -235,19 +253,12 @@ $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
 		gcc usr/gen_init_cpio.c -o usr/gen_init_cpio \
 	")
 
-$(OUT_DIR)/eif_build:
-	$(call toolchain,$(USER)," \
-		cd /cache/aws-nitro-enclaves-image-format \
-		&& CARGO_HOME=/cache/cargo cargo build --example eif_build \
-		&& cp target/debug/examples/eif_build /out; \
-	")
-
 $(OUT_DIR)/rootfs.cpio: \
 	$(OUT_DIR)/busybox \
 	$(OUT_DIR)/init \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio
 	mkdir -p $(CACHE_DIR)/$(TARGET)/rootfs/bin
-	cp $(CONFIG_DIR)/$(TARGET)/rootfs.list $(CACHE_DIR)/$(TARGET)/rootfs.list
+	cp $(CONFIG_DIR)/generic/rootfs.list $(CACHE_DIR)/$(TARGET)/rootfs.list
 ifeq ($(DEBUG), true)
 	cp $(OUT_DIR)/init $(CACHE_DIR)/$(TARGET)/rootfs/real_init
 	cp $(SRC_DIR)/scripts/busybox_init $(CACHE_DIR)/$(TARGET)/rootfs/init
@@ -269,27 +280,38 @@ endif
 		sha256sum /out/rootfs.cpio; \
 	")
 
-$(OUT_DIR)/bzImage: \
+$(OUT_DIR)/$(TARGET)/bzImage: \
 	$(OUT_DIR)/rootfs.cpio
 	$(call toolchain,$(USER)," \
 		cd /cache/linux-$(LINUX_VERSION) && \
 		cp /config/$(TARGET)/linux.config .config && \
 		make olddefconfig && \
 		make -j$(CPUS) ARCH=$(ARCH) bzImage && \
-		cp arch/x86_64/boot/bzImage /out/ && \
-		sha256sum /out/bzImage; \
+		cp arch/x86_64/boot/bzImage /out/$(TARGET) && \
+		sha256sum /out/$(TARGET)/bzImage; \
 	")
 
-$(OUT_DIR)/nitro.eif: \
-	$(OUT_DIR)/eif_build \
-	$(OUT_DIR)/bzImage \
+$(OUT_DIR)/$(TARGET)/eif_build:
+ifeq ($(TARGET), aws)
+	$(call toolchain,$(USER)," \
+		cd /cache/aws-nitro-enclaves-image-format \
+		&& CARGO_HOME=/cache/cargo cargo build --example eif_build \
+		&& cp target/debug/examples/eif_build /out; \
+	")
+endif
+
+$(OUT_DIR)/$(TARGET)/nitro.eif: \
+	$(OUT_DIR)/$(TARGET)/eif_build \
+	$(OUT_DIR)/$(TARGET)/bzImage \
 	$(OUT_DIR)/rootfs.cpio
+ifeq ($(TARGET), aws)
 	$(call toolchain,$(USER)," \
 		/out/eif_build \
-			--kernel /out/bzImage \
+			--kernel /out/$(TARGET)/bzImage \
 			--kernel_config /config/$(TARGET)/linux.config \
 			--cmdline "init=/init" \
 			--ramdisk /out/rootfs.cpio \
-			--output /out/nitro.eif \
+			--output /out/$(TARGET)/nitro.eif \
 	")
+endif
 
