@@ -1,7 +1,6 @@
-* Optionally link rootfs into kernel based on target
-* Fully carve out dedicated nitro target
-  * Only build nitro with TARGET=nitro
-* verify nitro demo actually boots in live enclaves
 * have "sign" make target that creates/signs hash manifest of all targets
 * compile against musl
 * fix kernel cache misses that result in re-pull/rebuild on every build
+* harden aws kernel to Kernel Self Protection Project guidelines
+* get nitro init binary to return attestation cert from amazon
+* re-write c init in rust

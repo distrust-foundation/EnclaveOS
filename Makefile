@@ -10,6 +10,7 @@ USER := $(shell id -g):$(shell id -g)
 CPUS := $(shell nproc)
 ARCH := x86_64
 TARGET_NAME := bzImage
+, := ,
 
 include $(PWD)/config/global.env
 
@@ -291,7 +292,7 @@ $(OUT_DIR)/$(TARGET)/bzImage: \
 		sha256sum /out/$(TARGET)/bzImage; \
 	")
 
-$(OUT_DIR)/$(TARGET)/eif_build:
+$(OUT_DIR)/aws/eif_build:
 ifeq ($(TARGET), aws)
 	$(call toolchain,$(USER)," \
 		cd /cache/aws-nitro-enclaves-image-format \
@@ -300,8 +301,8 @@ ifeq ($(TARGET), aws)
 	")
 endif
 
-$(OUT_DIR)/$(TARGET)/nitro.eif: \
-	$(OUT_DIR)/$(TARGET)/eif_build \
+$(OUT_DIR)/aws/nitro.eif: \
+	$(OUT_DIR)/aws/eif_build \
 	$(OUT_DIR)/$(TARGET)/bzImage \
 	$(OUT_DIR)/rootfs.cpio
 ifeq ($(TARGET), aws)
@@ -309,9 +310,9 @@ ifeq ($(TARGET), aws)
 		/out/eif_build \
 			--kernel /out/$(TARGET)/bzImage \
 			--kernel_config /config/$(TARGET)/linux.config \
-			--cmdline "init=/init" \
+			--cmdline 'reboot=k initrd=0x2000000$(,)3228672 root=/dev/ram0 panic=1 pci=off nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd' \
 			--ramdisk /out/rootfs.cpio \
-			--output /out/$(TARGET)/nitro.eif \
+			--output /out/aws/nitro.eif; \
 	")
 endif
 
