@@ -181,6 +181,7 @@ $(OUT_DIR)/toolchain.tar:
 		--build-arg CARGO_REF=$(CARGO_REF) \
 		--build-arg CONFIG_DIR=$(CONFIG_DIR) \
 		--build-arg SCRIPTS_DIR=$(SRC_DIR)/toolchain/scripts \
+		--platform=linux/$(ARCH) \
 		-f $(SRC_DIR)/toolchain/Dockerfile \
 		.
 	docker save "local/$(NAME)-build" -o "$@"
