@@ -122,6 +122,18 @@ $(OUT_DIR)/$(TARGET):
 $(CACHE_DIR):
 	mkdir -p $(CACHE_DIR)
 
+
+$(CACHE_DIR)/aws-nitro-enclaves-sdk-bootstrap/.git/HEAD:
+	$(call toolchain,$(USER), " \
+		cd /cache; \
+		git clone $(AWS_NITRO_DRIVER_REPO); \
+		cd aws-nitro-enclaves-sdk-bootstrap; \
+		git checkout $(AWS_NITRO_DRIVER_REF); \
+		git rev-parse --verify HEAD | grep -q $(AWS_NITRO_DRIVER_REF) || { \
+			echo 'Error: Git ref/branch collision.'; exit 1; \
+		}; \
+	")
+
 $(CACHE_DIR)/aws-nitro-enclaves-image-format/.git/HEAD:
 	$(call toolchain,$(USER), " \
 		cd /cache; \
@@ -254,7 +266,7 @@ $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
 		gcc usr/gen_init_cpio.c -o usr/gen_init_cpio \
 	")
 
-$(OUT_DIR)/rootfs.cpio: \
+$(OUT_DIR)/$(TARGET)/rootfs.cpio: \
 	$(OUT_DIR)/busybox \
 	$(OUT_DIR)/init \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio
@@ -265,9 +277,13 @@ ifeq ($(DEBUG), true)
 	cp $(SRC_DIR)/scripts/busybox_init $(CACHE_DIR)/$(TARGET)/rootfs/init
 	cp $(OUT_DIR)/busybox $(CACHE_DIR)/$(TARGET)/rootfs/bin/
 	echo "file /bin/busybox /cache/rootfs/bin/busybox 0755 0 0" \
-		> $(CACHE_DIR)/$(TARGET)/rootfs.list
+		>> $(CACHE_DIR)/$(TARGET)/rootfs.list
 else
 	cp $(OUT_DIR)/init $(CACHE_DIR)/$(TARGET)/rootfs/init
+endif
+ifeq ($(TARGET), aws)
+	echo "file /nsm.ko /out/aws/nsm.ko 0755 0 0" \
+		>> $(CACHE_DIR)/$(TARGET)/rootfs.list
 endif
 	$(call toolchain,$(USER)," \
 		cd /cache/$(TARGET)/rootfs && \
@@ -275,9 +291,9 @@ endif
 		find . -mindepth 1 -printf '%P\0' && \
 		cd /cache/linux-$(LINUX_VERSION) && \
 		usr/gen_initramfs.sh \
-			-o /out/rootfs.cpio \
+			-o /out/$(TARGET)/rootfs.cpio \
 			/cache/$(TARGET)/rootfs.list && \
-		cpio -itv < /out/rootfs.cpio && \
+		cpio -itv < /out/$(TARGET)/rootfs.cpio && \
 		sha256sum /out/rootfs.cpio; \
 	")
 
@@ -287,6 +303,7 @@ $(OUT_DIR)/$(TARGET)/bzImage: \
 		cd /cache/linux-$(LINUX_VERSION) && \
 		cp /config/$(TARGET)/linux.config .config && \
 		make olddefconfig && \
+		make modules_prepare && \
 		make -j$(CPUS) ARCH=$(ARCH) bzImage && \
 		cp arch/x86_64/boot/bzImage /out/$(TARGET) && \
 		sha256sum /out/$(TARGET)/bzImage; \
@@ -300,6 +317,17 @@ ifeq ($(TARGET), aws)
 		&& cp target/debug/examples/eif_build /out; \
 	")
 endif
+
+$(OUT_DIR)/aws/nsm.ko: \
+	$(CACHE_DIR)/aws-nitro-enclaves-sdk-bootstrap/.git/HEAD
+ifeq ($(TARGET), aws)
+	$(call toolchain,$(USER)," \
+		cd /cache/aws-nitro-enclaves-sdk-bootstrap/ \
+		&& make -C /cache/linux-$(LINUX_VERSION) M=/cache/aws-nitro-enclaves-sdk-bootstrap/nsm-driver \
+		&& cp nsm-driver/nsm.ko /out/aws/nsm.ko; \
+	")
+endif
+
 
 $(OUT_DIR)/aws/nitro.eif: \
 	$(OUT_DIR)/aws/eif_build \

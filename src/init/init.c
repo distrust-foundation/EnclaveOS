@@ -182,8 +182,8 @@ void init_nsm_driver() {
 int main() {
     init_dev();
     init_console();
-    //init_nsm_driver();
+    init_nsm_driver();
     enclave_ready();
-    puts("\nHello World!\n");
+    puts("\nHello World with NSM!\n");
     reboot(RB_AUTOBOOT);
 }
