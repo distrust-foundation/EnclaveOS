@@ -218,6 +218,7 @@ define toolchain
 		--env KBUILD_BUILD_TIMESTAMP=$(KBUILD_BUILD_TIMESTAMP) \
 		--env KCONFIG_NOTIMESTAMP=$(KCONFIG_NOTIMESTAMP) \
 		--env SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
+		--env CARGO_HOME=/cache/cargo \
 		local/$(NAME)-build \
 		bash -c $(2)
 endef
@@ -250,11 +251,11 @@ $(OUT_DIR)/busybox: \
 
 $(OUT_DIR)/init:
 	$(call toolchain,$(USER)," \
-		gcc \
-			-static \
-			-static-libgcc /src/init/init.c \
-			-o /out/init; \
+		cd /src/init/ && \
+		RUSTFLAGS='-C target-feature=+crt-static' cargo build --release && \
+		cp /src/init/target/release/init /out/init \
 	")
+
 
 $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION) \
@@ -269,20 +270,16 @@ $(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio: \
 $(OUT_DIR)/$(TARGET)/rootfs.cpio: \
 	$(OUT_DIR)/busybox \
 	$(OUT_DIR)/init \
+	$(OUT_DIR)/aws/nsm.ko \
 	$(CACHE_DIR)/linux-$(LINUX_VERSION)/usr/gen_init_cpio
-	mkdir -p $(CACHE_DIR)/$(TARGET)/rootfs/bin
-	cp $(CONFIG_DIR)/generic/rootfs.list $(CACHE_DIR)/$(TARGET)/rootfs.list
+	cp $(CONFIG_DIR)/$(TARGET)/rootfs.list $(CACHE_DIR)/$(TARGET)/rootfs.list
+	cp $(OUT_DIR)/init $(CACHE_DIR)/$(TARGET)/rootfs/init
 ifeq ($(DEBUG), true)
-	cp $(OUT_DIR)/init $(CACHE_DIR)/$(TARGET)/rootfs/real_init
+	mv $(CACHE_DIR)/$(TARGET)/rootfs/init $(CACHE_DIR)/$(TARGET)/rootfs/real_init
 	cp $(SRC_DIR)/scripts/busybox_init $(CACHE_DIR)/$(TARGET)/rootfs/init
+	mkdir -p $(CACHE_DIR)/$(TARGET)/rootfs/bin
 	cp $(OUT_DIR)/busybox $(CACHE_DIR)/$(TARGET)/rootfs/bin/
 	echo "file /bin/busybox /cache/rootfs/bin/busybox 0755 0 0" \
-		>> $(CACHE_DIR)/$(TARGET)/rootfs.list
-else
-	cp $(OUT_DIR)/init $(CACHE_DIR)/$(TARGET)/rootfs/init
-endif
-ifeq ($(TARGET), aws)
-	echo "file /nsm.ko /out/aws/nsm.ko 0755 0 0" \
 		>> $(CACHE_DIR)/$(TARGET)/rootfs.list
 endif
 	$(call toolchain,$(USER)," \
@@ -294,11 +291,11 @@ endif
 			-o /out/$(TARGET)/rootfs.cpio \
 			/cache/$(TARGET)/rootfs.list && \
 		cpio -itv < /out/$(TARGET)/rootfs.cpio && \
-		sha256sum /out/rootfs.cpio; \
+		sha256sum /out/$(TARGET)/rootfs.cpio; \
 	")
 
 $(OUT_DIR)/$(TARGET)/bzImage: \
-	$(OUT_DIR)/rootfs.cpio
+	$(OUT_DIR)/$(TARGET)/rootfs.cpio
 	$(call toolchain,$(USER)," \
 		cd /cache/linux-$(LINUX_VERSION) && \
 		cp /config/$(TARGET)/linux.config .config && \
@@ -332,14 +329,14 @@ endif
 $(OUT_DIR)/aws/nitro.eif: \
 	$(OUT_DIR)/aws/eif_build \
 	$(OUT_DIR)/$(TARGET)/bzImage \
-	$(OUT_DIR)/rootfs.cpio
+	$(OUT_DIR)/$(TARGET)/rootfs.cpio
 ifeq ($(TARGET), aws)
 	$(call toolchain,$(USER)," \
 		/out/eif_build \
 			--kernel /out/$(TARGET)/bzImage \
 			--kernel_config /config/$(TARGET)/linux.config \
 			--cmdline 'reboot=k initrd=0x2000000$(,)3228672 root=/dev/ram0 panic=1 pci=off nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd' \
-			--ramdisk /out/rootfs.cpio \
+			--ramdisk /out/aws/rootfs.cpio \
 			--output /out/aws/nitro.eif; \
 	")
 endif
