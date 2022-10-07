@@ -1,24 +1,15 @@
 extern crate libc;
 use libc::c_ulong;
 use libc::c_int;
-use libc::read;
-use libc::write;
-use libc::close;
-use libc::reboot;
-use libc::socket;
-use libc::connect;
 use libc::c_void;
-use libc::sockaddr;
-use libc::sockaddr_vm;
-use libc::SOCK_STREAM;
-use libc::AF_VSOCK;
 use libc::MS_NOSUID;
 use libc::MS_NOEXEC;
 use libc::MS_NODEV;
-use libc::RB_AUTOBOOT;
 use std::mem::zeroed;
 use std::mem::size_of;
 use std::ffi::CString;
+use std::fs::File;
+use std::os::unix::io::AsRawFd;
 
 // Log errors to console
 pub fn error(message: String){
@@ -28,6 +19,13 @@ pub fn error(message: String){
 // Log info to console
 pub fn info(message: String){
     println!("{} {}", boot_time(), message);
+}
+
+pub fn reboot(){
+    use libc::{reboot, RB_AUTOBOOT};
+    unsafe {
+        reboot(RB_AUTOBOOT);
+    }
 }
 
 // Dmesg formatted seconds since boot
@@ -61,6 +59,8 @@ pub fn mount(
         )
     } != 0 {
         error(format!("Failed to mount: {}", target));
+    } else {
+        info(format!("Mounted: {}", target));
     }
 }
 
@@ -86,6 +86,7 @@ pub fn freopen(
 
 // Signal to hypervisor that booting was successful
 pub fn heartbeat(){
+    use libc::{connect, socket, write, read, close, sockaddr, sockaddr_vm, SOCK_STREAM, AF_VSOCK};
     let mut buf: [u8; 1] = [0; 1];
     buf[0] = 0xB7; // AWS Nitro heartbeat value
     unsafe {
@@ -103,6 +104,7 @@ pub fn heartbeat(){
         read(fd, buf.as_ptr() as _, 1);
         close(fd);
     }
+    info(format!("Sent NSM heartbeat"));
 }
 
 // Initialize console with stdin/stdout/stderr
@@ -110,6 +112,7 @@ pub fn init_console() {
     freopen("/dev/console", "r", 0);
     freopen("/dev/console", "w", 1);
     freopen("/dev/console", "w", 2);
+    info(format!("Initialized console"));
 }
 
 // Mount common filesystems with conservative permissions
@@ -124,12 +127,24 @@ pub fn init_rootfs() {
     mount("cgroup_root", "/sys/fs/cgroup", "tmpfs", MS_NODEV | MS_NOSUID | MS_NOEXEC, "mode=0755");
 }
 
+// Insert kernel module into memory
+// TODO: compile all modules in kernel and disable lkm support.
+pub fn insmod(path: &str){
+    use libc::{syscall, SYS_finit_module};
+    let file = File::open(path).unwrap();
+    let fd = file.as_raw_fd();
+    if unsafe { syscall(SYS_finit_module, fd, &[0u8; 1], 0) } < 0 {
+        error(format!("Failed to insert kernel module: {}", path));
+    } else {
+        info(format!("Loaded kernel module: {}", path));
+    }
+}
+
 fn main() {
     init_rootfs();
     init_console();
     heartbeat();
+    insmod("/nsm.ko");
     info("EnclaveOS Booted".to_string());
-    unsafe {
-        reboot(RB_AUTOBOOT);
-    }
+    reboot();
 }
