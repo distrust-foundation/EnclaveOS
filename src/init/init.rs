@@ -46,9 +46,9 @@ pub fn mount(
 ) {
     use libc::mount;
     let src_cs = CString::new(src).unwrap();
-    let target_cs = CString::new(target).unwrap();
     let fstype_cs = CString::new(fstype).unwrap();
     let data_cs = CString::new(data).unwrap();
+    let target_cs = CString::new(target).unwrap();
     if unsafe {
         mount(
             src_cs.as_ptr(),
@@ -84,8 +84,20 @@ pub fn freopen(
     }
 }
 
-// Signal to hypervisor that booting was successful
-pub fn heartbeat(){
+// Insert kernel module into memory
+pub fn insmod(path: &str){
+    use libc::{syscall, SYS_finit_module};
+    let file = File::open(path).unwrap();
+    let fd = file.as_raw_fd();
+    if unsafe { syscall(SYS_finit_module, fd, &[0u8; 1], 0) } < 0 {
+        error(format!("Failed to insert kernel module: {}", path));
+    } else {
+        info(format!("Loaded kernel module: {}", path));
+    }
+}
+
+// Signal to Nitro hypervisor that booting was successful
+pub fn nitro_heartbeat(){
     use libc::{connect, socket, write, read, close, sockaddr, sockaddr_vm, SOCK_STREAM, AF_VSOCK};
     let mut buf: [u8; 1] = [0; 1];
     buf[0] = 0xB7; // AWS Nitro heartbeat value
@@ -105,6 +117,31 @@ pub fn heartbeat(){
         close(fd);
     }
     info(format!("Sent NSM heartbeat"));
+}
+
+// Get entropy sample from Nitro device
+pub fn nitro_get_entropy() -> u8 {
+	use nsm_lib::{nsm_lib_init, nsm_get_random};
+	use nsm_api::api::ErrorCode;
+    let nsm_fd = nsm_lib_init();
+    if nsm_fd < 0 {
+    	error(format!("Failed to connect to NSM device"));
+    };
+    let mut dest: [u8; 256] = [0; 256];
+    let mut dest_len = dest.len();
+    let status = unsafe {
+		nsm_get_random(nsm_fd, dest.as_mut_ptr(), &mut dest_len)
+    };
+    match status {
+        ErrorCode::Success => info(format!("Entropy seeding success")),
+    	_ => error(format!("Failed to get entropy from NSM device")),
+    }
+}
+
+pub fn init_nitro(){
+    nitro_heartbeat();
+    insmod("/nsm.ko");
+    nitro_seed_entropy();
 }
 
 // Initialize console with stdin/stdout/stderr
@@ -127,24 +164,14 @@ pub fn init_rootfs() {
     mount("cgroup_root", "/sys/fs/cgroup", "tmpfs", MS_NODEV | MS_NOSUID | MS_NOEXEC, "mode=0755");
 }
 
-// Insert kernel module into memory
-// TODO: compile all modules in kernel and disable lkm support.
-pub fn insmod(path: &str){
-    use libc::{syscall, SYS_finit_module};
-    let file = File::open(path).unwrap();
-    let fd = file.as_raw_fd();
-    if unsafe { syscall(SYS_finit_module, fd, &[0u8; 1], 0) } < 0 {
-        error(format!("Failed to insert kernel module: {}", path));
-    } else {
-        info(format!("Loaded kernel module: {}", path));
-    }
+pub fn boot(){
+    init_rootfs();
+    init_console();
+    init_nitro();
 }
 
 fn main() {
-    init_rootfs();
-    init_console();
-    heartbeat();
-    insmod("/nsm.ko");
+    boot();
     info("EnclaveOS Booted".to_string());
     reboot();
 }
