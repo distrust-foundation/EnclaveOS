@@ -255,7 +255,7 @@ $(OUT_DIR)/init:
 		RUSTFLAGS='-C target-feature=+crt-static' cargo build \
 			--target x86_64-unknown-linux-gnu \
 			--release && \
-		cp /src/init/target/release/init /out/init \
+		cp /src/init/target/x86_64-unknown-linux-gnu/release/init /out/init \
 	")
 
 
