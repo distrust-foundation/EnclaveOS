@@ -33,13 +33,18 @@ $(OUT_DIR)/$(ARCH).eif: \
 	$(CACHE_DIR)/bzImage \
 	$(CACHE_DIR)/rootfs.cpio \
 	$(CACHE_DIR)/linux.config
+	mkdir -p $(CACHE_DIR)/eif
 	$(call toolchain,$(USER)," \
+		cp $(CACHE_DIR)/bzImage $(CACHE_DIR)/eif/ && \
+		cp $(CACHE_DIR)/rootfs.cpio $(CACHE_DIR)/eif/ && \
+		cp $(CONFIG_DIR)/$(TARGET)/linux.config $(CACHE_DIR)/eif/ && \
+		find $(CACHE_DIR)/eif -mindepth 1 -execdir touch -hcd "@0" "{}" + && \
 		$(BIN_DIR)/eif_build \
-			--kernel $(CACHE_DIR)/bzImage \
-			--kernel_config $(CACHE_DIR)/linux.config \
+			--kernel $(CACHE_DIR)/eif/bzImage \
+			--kernel_config $(CACHE_DIR)/eif/linux.config \
 			--cmdline 'reboot=k initrd=0x2000000$(,)3228672 root=/dev/ram0 panic=1 pci=off nomodules console=ttyS0 i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd' \
-			--ramdisk $(CACHE_DIR)/rootfs.cpio \
-			--output $@; \
+			--ramdisk $(CACHE_DIR)/eif/rootfs.cpio \
+			--output $(OUT_DIR)/$(ARCH).eif; \
 	")
 
 $(FETCH_DIR)/aws-nitro-enclaves-sdk-bootstrap:
