@@ -16,3 +16,4 @@ cmake
 musl-tools
 cargo
 pkg-config
+libfaketime
