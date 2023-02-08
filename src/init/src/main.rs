@@ -1,4 +1,11 @@
-use system::{dmesg, dmesg_err, freopen, mount, reboot};
+mod system;
+use system::{freopen, mount, reboot};
+
+mod dmesg;
+use dmesg::{println, eprintln};
+
+#[cfg(feature = "aws")]
+mod aws;
 
 // TODO: call seed_entropy with a generic source on non-aws targets, maybe by providing get_entropy
 // as an Option<fn> rather than fn.
@@ -32,8 +39,8 @@ fn init_rootfs() {
     ];
     for (src, target, fstype, flags, data) in args {
         match mount(src, target, fstype, flags, data) {
-            Ok(()) => dmesg(format!("Mounted {target}")),
-            Err(e) => dmesg_err(format!("Unable to mount {target} ({e})")),
+            Ok(()) => println!("Mounted {target}"),
+            Err(e) => eprintln!("Unable to mount {target} ({e})"),
         }
     }
 }
@@ -48,7 +55,7 @@ fn init_console() {
     for (filename, mode, file) in args {
         match freopen(filename, mode, file) {
             Ok(()) => {}
-            Err(e) => dmesg_err(format!("Unable to open {filename} ({e})")),
+            Err(e) => eprintln!("Unable to open {filename} ({e})"),
         }
     }
 }
@@ -56,17 +63,24 @@ fn init_console() {
 fn boot() {
     init_rootfs();
     init_console();
+
+    // TODO: should a failure loading AWS components continue? AWS components are only loaded when
+    // building with the AWS target enabled, so by non-AWS usage this component should not be
+    // loaded.
     #[cfg(feature = "aws")]
-    init_platform();
+    match init_platform() {
+        Ok(_) => println!("Successfully sent Nitro heartbeat and loaded necessary kernel modules"),
+        Err(e) => eprintln!("Error when initializing AWS functionality: {e}"),
+    }
     #[cfg(feature = "aws")]
     match seed_entropy(4096, get_entropy) {
-        Ok(size) => dmesg(format!("Seeded kernel with entropy: {size}")),
-        Err(e) => dmesg_err(format!("Unable to seed kernel with entropy: {e}")),
+        Ok(size) => println!("Seeded kernel with entropy: {size}"),
+        Err(e) => eprintln!("Unable to seed kernel with entropy: {e}"),
     };
 }
 
 fn main() {
     boot();
-    dmesg("EnclaveOS Booted".to_string());
+    eprintln!("EnclaveOS Booted");
     reboot();
 }

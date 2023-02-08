@@ -1,25 +1,48 @@
-use system::{dmesg, dmesg_err, SystemError};
+use std::mem::size_of;
+
+use crate::system;
+use system::SystemError;
 
 /// Signal to Nitro hypervisor that booting was successful.
+///
+/// # Errors
+///
+/// This function returns an error if it encounters any error when sending or receiving the
+/// heartbeat.
 fn nitro_heartbeat() -> Result<(), SystemError> {
-    use libc::{close, read, write, AF_VSOCK};
-    use system::socket_connect;
-    let mut buf: [u8; 1] = [0; 1];
-    buf[0] = 0xB7; // AWS Nitro magic heartbeat value
-    let fd = socket_connect(
-        AF_VSOCK
-            .try_into()
-            .expect("AF_VSOCK does not fit sa_family_t"),
-        9000,
-        3,
-    )?;
+    use libc::{close, connect, read, sockaddr_vm, socket, write, AF_VSOCK, SOCK_STREAM};
+    let buf: [u8; 1] = [0xB7; 1]; // AWS Nitro magic heartbeat value
+    let family = AF_VSOCK;
+    let port = 9000;
+    let cid = 3;
+    let fd = unsafe { socket(AF_VSOCK, SOCK_STREAM, 0) };
+    let sockaddr = sockaddr_vm {
+        svm_family: family.try_into().expect("AF_VSOCK does not fit sa_family_t"),
+        svm_reserved1: Default::default(),
+        svm_port: port,
+        svm_cid: cid,
+        svm_zero: Default::default(),
+    };
+    let sockaddr_size = libc::socklen_t::try_from(size_of::<sockaddr_vm>())
+        .expect("sizeof sockaddr_vm is larger than socklen_t");
+
+    if unsafe {
+        connect(fd, std::ptr::addr_of!(sockaddr).cast(), sockaddr_size)
+    } < 0
+    {
+        return Err(SystemError {
+            message: format!(
+                "Failed to connect to socket: family={family}, port={port}, cid={cid}"
+            ),
+        })
+    }
+
     // TODO: error handling
     unsafe {
         write(fd, buf.as_ptr().cast(), 1);
         read(fd, buf.as_ptr() as _, 1);
         close(fd);
     }
-    dmesg("Sent NSM heartbeat");
     Ok(())
 }
 
@@ -58,16 +81,11 @@ pub fn get_entropy(size: usize) -> Result<Vec<u8>, SystemError> {
 }
 
 /// Initialize nitro device by signaling a nitro heartbeat and inserting the nsm.ko kernel module.
-pub fn init_platform() {
+pub fn init_platform() -> Result<(), SystemError> {
     use system::insmod;
-    // TODO: error handling
-    match nitro_heartbeat() {
-        Ok(()) => dmesg("Nitro heartbeat successfully sent"),
-        Err(e) => dmesg_err(e),
-    };
 
-    match insmod("/nsm.ko") {
-        Ok(()) => dmesg("Loaded nsm.ko"),
-        Err(e) => dmesg_err(e),
-    };
+    nitro_heartbeat()?;
+    insmod("/nsm.ko")?;
+
+    Ok(())
 }

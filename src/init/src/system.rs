@@ -3,7 +3,6 @@ use std::{
     ffi::CString,
     fmt,
     fs::File,
-    mem::size_of,
     os::unix::io::AsRawFd,
 };
 
@@ -23,30 +22,6 @@ impl From<std::ffi::NulError> for SystemError {
             message: value.to_string(),
         }
     }
-}
-
-/// Print dmesg formatted log to standard output
-pub fn dmesg(message: impl std::fmt::Display) {
-    println!("{} {}", boot_time(), message);
-}
-
-/// Print dmesg formatted error message to standard error
-pub fn dmesg_err(message: impl std::fmt::Display) {
-    eprintln!("{} {}", boot_time(), message);
-}
-
-/// Dmesg-formatted seconds since boot
-#[allow(clippy::must_use_candidate)]
-pub fn boot_time() -> String {
-    use libc::{clock_gettime, timespec, CLOCK_BOOTTIME};
-    let mut t = timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    unsafe {
-        clock_gettime(CLOCK_BOOTTIME, std::ptr::addr_of_mut!(t));
-    }
-    format!("[ {: >4}.{}]", t.tv_sec, t.tv_nsec / 1000)
 }
 
 /// Unconditionally reboot the system immediately
@@ -144,44 +119,6 @@ pub fn insmod(path: &str) -> Result<(), SystemError> {
         })
     } else {
         Ok(())
-    }
-}
-
-/// Instantiate a socket with the given family, port, and context identifier.
-///
-/// # Errors
-///
-/// This function returns an error if the `libc::connect` system call fails.
-pub fn socket_connect(
-    family: libc::sa_family_t,
-    port: u32,
-    cid: u32,
-) -> Result<c_int, SystemError> {
-    use libc::{connect, sockaddr_vm, socket, SOCK_STREAM};
-    let fd = unsafe { socket(c_int::from(family), SOCK_STREAM, 0) };
-    if unsafe {
-        let sa = sockaddr_vm {
-            svm_family: family,
-            svm_reserved1: Default::default(),
-            svm_port: port,
-            svm_cid: cid,
-            svm_zero: Default::default(),
-        };
-        connect(
-            fd,
-            std::ptr::addr_of!(sa).cast(),
-            libc::socklen_t::try_from(size_of::<sockaddr_vm>())
-                .expect("sizeof sockaddr_vm is larger than socklen_t"),
-        )
-    } < 0
-    {
-        Err(SystemError {
-            message: format!(
-                "Failed to connect to socket: family={family}, port={port}, cid={cid}"
-            ),
-        })
-    } else {
-        Ok(fd)
     }
 }
 
