@@ -2,7 +2,7 @@ mod sys;
 use sys::{freopen, mount, reboot};
 
 mod dmesg;
-use dmesg::{println, eprintln};
+use dmesg::{deprintln, dprintln};
 
 mod platforms;
 
@@ -38,8 +38,8 @@ fn init_rootfs() {
     ];
     for (src, target, fstype, flags, data) in args {
         match mount(src, target, fstype, flags, data) {
-            Ok(()) => println!("Mounted {target}"),
-            Err(e) => eprintln!("Unable to mount {target} ({e})"),
+            Ok(()) => dprintln!("Mounted {target}"),
+            Err(e) => deprintln!("Unable to mount {target} ({e})"),
         }
     }
 }
@@ -54,7 +54,7 @@ fn init_console() {
     for (filename, mode, file) in args {
         match freopen(filename, mode, file) {
             Ok(()) => {}
-            Err(e) => eprintln!("Unable to open {filename} ({e})"),
+            Err(e) => deprintln!("Unable to open {filename} ({e})"),
         }
     }
 }
@@ -67,9 +67,9 @@ fn boot() {
     // building with the AWS target enabled, so by non-AWS usage this component should not be
     // loaded.
     #[cfg(feature = "platform-aws")]
-    match init_platform() {
-        Ok(_) => println!("Successfully sent Nitro heartbeat and loaded necessary kernel modules"),
-        Err(e) => eprintln!("Error when initializing AWS functionality: {e}"),
+    match platforms::aws::init_platform() {
+        Ok(_) => dprintln!("Successfully sent Nitro heartbeat and loaded necessary kernel modules"),
+        Err(e) => deprintln!("Error when initializing AWS functionality: {e}"),
     }
     #[cfg(feature = "platform-aws")]
     match seed_entropy(4096, get_entropy) {
@@ -80,6 +80,6 @@ fn boot() {
 
 fn main() {
     boot();
-    eprintln!("EnclaveOS Booted");
+    deprintln!("EnclaveOS Booted");
     reboot();
 }

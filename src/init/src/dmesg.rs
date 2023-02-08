@@ -3,18 +3,19 @@ use libc::{clock_gettime, timespec, CLOCK_BOOTTIME};
 // TODO: this file contains some ugly hacks. should they be fixed?
 
 #[macro_export]
-macro_rules! dprintln {
+macro_rules! dprintln_ {
     () => { ::std::println!("{}", boot_time()) };
     ($($arg:tt)*) => { ::std::println!("{} {}", $crate::dmesg::boot_time(), format!($($arg)*)) };
 }
-pub use dprintln as println;
 
 #[macro_export]
-macro_rules! deprintln {
+macro_rules! deprintln_ {
     () => { ::std::eprintln!("{}", boot_time()) };
     ($($arg:tt)*) => { ::std::eprintln!("{} {}", $crate::dmesg::boot_time(), format!($($arg)*)) };
 }
-pub use deprintln as eprintln;
+
+pub use dprintln_ as dprintln;
+pub use deprintln_ as deprintln;
 
 /// Dmesg-formatted seconds since boot
 #[allow(clippy::must_use_candidate)]
