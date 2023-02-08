@@ -1,26 +1,32 @@
 use libc::{c_int, c_ulong};
-use std::{
-    ffi::CString,
-    fmt,
-    fs::File,
-    os::unix::io::AsRawFd,
-};
+use std::{ffi::CString, fs::File, os::unix::io::AsRawFd};
 
-pub struct SystemError {
-    pub message: String,
-}
+use anyhow::{anyhow, Context, Result};
 
-impl fmt::Display for SystemError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.message.as_str())
-    }
-}
-
-impl From<std::ffi::NulError> for SystemError {
-    fn from(value: std::ffi::NulError) -> Self {
-        SystemError {
-            message: value.to_string(),
+/// When calling a libc function, determine whether the return value of that function is an error,
+/// and if so, wrap into an error using the `libc::strerror` function. This assumes that the return
+/// value is -1 on failure.
+///
+/// # Errors
+///
+/// This function returns a Result<T> to convert the given potentially invalid value to an Error.
+pub fn strerror(input: c_int) -> Result<c_int> {
+    use libc::strerror_r;
+    let errno = std::io::Error::last_os_error().raw_os_error().unwrap();
+    if input == -1 {
+        let mut buf = [0; 128];
+        let size = 128;
+        let result = unsafe { strerror_r(errno, buf.as_mut_ptr().cast(), size) };
+        if result == 0 {
+            match CString::new(buf).map(CString::into_string) {
+                Ok(Ok(error_message)) => Err(anyhow!("{error_message}")),
+                Err(_) | Ok(Err(_)) => Err(anyhow!("Unknown error: {errno}")),
+            }
+        } else {
+            Err(anyhow!("Unknown error: {errno}"))
         }
+    } else {
+        Ok(input)
     }
 }
 
@@ -38,20 +44,14 @@ pub fn reboot() {
 ///
 /// This function will return an error if any of the input strings contain a null byte (a byte with
 /// the value of 0), or if the call to `mount(2)` fails.
-pub fn mount(
-    src: &str,
-    target: &str,
-    fstype: &str,
-    flags: c_ulong,
-    data: &str,
-) -> Result<(), SystemError> {
+pub fn mount(src: &str, target: &str, fstype: &str, flags: c_ulong, data: &str) -> Result<()> {
     use libc::mount;
     let src_cs = CString::new(src)?;
     let fstype_cs = CString::new(fstype)?;
     let data_cs = CString::new(data)?;
     let target_cs = CString::new(target)?;
-    #[allow(clippy::if_not_else)]
-    if unsafe {
+
+    strerror(unsafe {
         mount(
             src_cs.as_ptr(),
             target_cs.as_ptr(),
@@ -59,14 +59,9 @@ pub fn mount(
             flags,
             data_cs.as_ptr().cast(),
         )
-    } != 0
-    {
-        Err(SystemError {
-            message: format!("Failed to mount: {target}"),
-        })
-    } else {
-        Ok(())
-    }
+    })
+    .with_context(|| format!("Failed to mount: {target}"))?;
+    Ok(())
 }
 
 /// Call the `libc::freopen` library function with converted arguments.
@@ -75,7 +70,7 @@ pub fn mount(
 ///
 /// This function will return an error if any of the input strings contain a null byte (a byte with
 /// the value of 0), or if the call to `mount(3)` fails.
-pub fn freopen(filename: &str, mode: &str, file: c_int) -> Result<(), SystemError> {
+pub fn freopen(filename: &str, mode: &str, file: c_int) -> Result<()> {
     use libc::{fdopen, freopen};
     let filename_cs = CString::new(filename)?;
     let mode_cs = CString::new(mode)?;
@@ -88,9 +83,7 @@ pub fn freopen(filename: &str, mode: &str, file: c_int) -> Result<(), SystemErro
     }
     .is_null()
     {
-        Err(SystemError {
-            message: format!("Failed to freopen: {filename}"),
-        })
+        Err(anyhow!("Failed to freopen: {filename}"))
     } else {
         Ok(())
     }
@@ -102,24 +95,16 @@ pub fn freopen(filename: &str, mode: &str, file: c_int) -> Result<(), SystemErro
 ///
 /// This function returns an error when the kernel module's file is unable to be opened or when the
 /// kernel module is unable to be inserted.
-pub fn insmod(path: &str) -> Result<(), SystemError> {
+pub fn insmod(path: &str) -> Result<()> {
     use libc::{syscall, SYS_finit_module};
     let file = match File::open(path) {
         Ok(file) => file,
-        Err(error) => {
-            return Err(SystemError {
-                message: format!("Failed to open kernel module: {path} ({error})"),
-            })
-        }
+        Err(error) => return Err(anyhow!("Failed to open kernel module: {path} ({error})")),
     };
     let fd = file.as_raw_fd();
-    if unsafe { syscall(SYS_finit_module, fd, &[0u8; 1], 0) } < 0 {
-        Err(SystemError {
-            message: format!("Failed to insert kernel module: {path}"),
-        })
-    } else {
-        Ok(())
-    }
+    strerror(unsafe { syscall(SYS_finit_module, fd, &[0u8; 1], 0) }.try_into()?)
+        .with_context(|| "failed to insert kernel module: {path}")?;
+    Ok(())
 }
 
 /// Seed an entropy sample into the kernel randomness pool, generating bytes of a given `size` from
@@ -130,32 +115,24 @@ pub fn insmod(path: &str) -> Result<(), SystemError> {
 /// This function will return an error if the source function fails to generate entropy of the
 /// given data size, if the random file is unable to open, or if the data is unable to be written
 /// to the file.
-pub fn seed_entropy(
-    size: usize,
-    source: fn(usize) -> Result<Vec<u8>, SystemError>,
-) -> Result<usize, SystemError> {
+pub fn seed_entropy(size: usize, source: fn(usize) -> Result<Vec<u8>>) -> Result<usize> {
     use std::{fs::OpenOptions, io::Write};
 
+    let dev_urandom = "/dev/urandom";
     let entropy_sample = source(size)?;
 
-    let mut random_fd = match OpenOptions::new()
+    let mut random_fd = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/urandom") {
-            Ok(fd) => fd,
-            Err(e) => return Err(SystemError {
-                message: format!("Failed to open /dev/urandom: {e}"),
-            })
-        };
+        .open(dev_urandom)
+        .with_context(|| format!("Failed to open {dev_urandom}"))?;
 
     // 5.10+ kernel entropy pools are made of BLAKE2 hashes fixed at 256 bit
     // The RNDADDENTROPY crediting system is now complexity with no gain.
     // We just simply write samples to /dev/urandom now.
     // See: https://cdn.kernel.org/pub/linux/kernel/v5.x/ChangeLog-5.10.119
-    match random_fd.write_all(&entropy_sample) {
-        Ok(()) => Ok(entropy_sample.len()),
-        Err(e) => Err(SystemError {
-            message: format!("Failed to write to /dev/urandom: {e}"),
-        }),
-    }
+    random_fd
+        .write_all(&entropy_sample)
+        .with_context(|| format!("Failed to write to {dev_urandom}"))?;
+    Ok(entropy_sample.len())
 }

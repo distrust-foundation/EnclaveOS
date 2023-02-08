@@ -1,4 +1,5 @@
-use crate::sys::{insmod, SystemError};
+use crate::sys::insmod;
+use anyhow::{anyhow, Result};
 
 mod sys;
 
@@ -8,14 +9,12 @@ mod sys;
 ///
 /// This function returns an error if the `nsm_lib::nsm_lib_init` function or
 /// `nsm_lib::nsm_get_random` function fails.
-pub fn get_entropy(size: usize) -> Result<Vec<u8>, SystemError> {
+pub fn get_entropy(size: usize) -> Result<Vec<u8>> {
     use nsm_api::api::ErrorCode;
     use nsm_lib::{nsm_get_random, nsm_lib_init};
     let nsm_fd = nsm_lib_init();
     if nsm_fd < 0 {
-        return Err(SystemError {
-            message: String::from("Failed to connect to NSM device"),
-        });
+        return Err(anyhow!("Failed to connect to NSM device: {nsm_fd}"))
     };
     let mut dest = Vec::with_capacity(size);
     while dest.len() < size {
@@ -26,19 +25,15 @@ pub fn get_entropy(size: usize) -> Result<Vec<u8>, SystemError> {
             ErrorCode::Success => {
                 dest.extend_from_slice(&buf);
             }
-            _ => {
-                return Err(SystemError {
-                    message: String::from("Failed to get entropy from NSM device"),
-                });
-            }
+            _ => return Err(anyhow!("Failed to get entropy from NSM device: {status:?}")),
+
         };
     }
     Ok(dest)
 }
 
 /// Initialize nitro device by signaling a nitro heartbeat and inserting the nsm.ko kernel module.
-pub fn init_platform() -> Result<(), SystemError> {
-
+pub fn init_platform() -> Result<()> {
     sys::nitro_heartbeat()?;
     insmod("/nsm.ko")?;
 
