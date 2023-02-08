@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 mod sys;
 use sys::{freopen, mount, reboot};
 
@@ -5,14 +7,6 @@ mod dmesg;
 use dmesg::{deprintln, dprintln};
 
 mod platforms;
-
-// TODO: call seed_entropy with a generic source on non-aws targets, maybe by providing get_entropy
-// as an Option<fn> rather than fn.
-#[cfg(feature = "platform-aws")]
-use sys::seed_entropy;
-
-#[cfg(feature = "platform-aws")]
-use platforms::aws::{get_entropy, init_platform};
 
 /// Mount common filesystems with conservative permissions.
 fn init_rootfs() {
@@ -59,6 +53,24 @@ fn init_console() {
     }
 }
 
+/// Use a `get_entropy` function (if available) to seed the RNG.
+fn init_entropy() {
+    #[allow(unused_mut, unused_assignments, clippy::type_complexity)]
+    let mut get_entropy: Option<fn(usize) -> Result<Vec<u8>>> = None;
+
+    #[cfg(feature = "platform-aws")]
+    {
+        get_entropy = Some(platforms::aws::get_entropy);
+    }
+
+    if let Some(get_entropy) = get_entropy {
+        match sys::seed_entropy(4096, get_entropy) {
+            Ok(size) => dprintln!("Seeded kernel with entropy: {size}"),
+            Err(e) => deprintln!("Unable to seed kernel with entropy: {e}"),
+        };
+    }
+}
+
 fn boot() {
     init_rootfs();
     init_console();
@@ -71,11 +83,8 @@ fn boot() {
         Ok(_) => dprintln!("Successfully sent Nitro heartbeat and loaded necessary kernel modules"),
         Err(e) => deprintln!("Error when initializing AWS functionality: {e}"),
     }
-    #[cfg(feature = "platform-aws")]
-    match seed_entropy(4096, get_entropy) {
-        Ok(size) => println!("Seeded kernel with entropy: {size}"),
-        Err(e) => eprintln!("Unable to seed kernel with entropy: {e}"),
-    };
+
+    init_entropy();
 }
 
 fn main() {
