@@ -1,5 +1,5 @@
 use crate::sys::strerror;
-use anyhow::{Context, Result};
+use crate::error::{Context, Result};
 use std::mem::size_of;
 
 /// Signal to Nitro hypervisor that booting was successful.
@@ -14,7 +14,8 @@ pub fn nitro_heartbeat() -> Result<()> {
     let family = AF_VSOCK;
     let port = 9000;
     let cid = 3;
-    let fd = unsafe { socket(AF_VSOCK, SOCK_STREAM, 0) };
+    let fd = strerror(unsafe { socket(AF_VSOCK, SOCK_STREAM, 0) })
+        .context("Unable to create AF_VSOCK, SOCK_STREAM socket")?;
     let sockaddr = sockaddr_vm {
         svm_family: family
             .try_into()

@@ -1,7 +1,7 @@
 use libc::{c_int, c_ulong};
 use std::{ffi::CString, fs::File, os::unix::io::AsRawFd};
 
-use anyhow::{anyhow, Context, Result};
+use crate::error::{error, Context, Result};
 
 /// When calling a libc function, determine whether the return value of that function is an error,
 /// and if so, wrap into an error using the `libc::strerror` function. This assumes that the return
@@ -18,12 +18,16 @@ pub fn strerror(input: c_int) -> Result<c_int> {
         let size = 128;
         let result = unsafe { strerror_r(errno, buf.as_mut_ptr().cast(), size) };
         if result == 0 {
-            match CString::new(buf).map(CString::into_string) {
-                Ok(Ok(error_message)) => Err(anyhow!("{error_message}")),
-                Err(_) | Ok(Err(_)) => Err(anyhow!("Unknown error: {errno}")),
+            // find index of 0 byte
+            let position = buf.iter().position(|&v| v == 0).unwrap_or(buf.len());
+            match CString::new(&buf[..position]).map(CString::into_string) {
+                Ok(Ok(error_message)) => Err(error!("{error_message}")),
+                Err(e) => Err(error!("Unable to retrieve error: {errno} ({e})")),
+                Ok(Err(e)) => Err(error!("Badly retrieved error: {errno} ({e})")),
+
             }
         } else {
-            Err(anyhow!("Unknown error: {errno}"))
+            Err(error!("Unknown error: {errno}"))
         }
     } else {
         Ok(input)
@@ -83,7 +87,7 @@ pub fn freopen(filename: &str, mode: &str, file: c_int) -> Result<()> {
     }
     .is_null()
     {
-        Err(anyhow!("Failed to freopen: {filename}"))
+        Err(error!("Failed to freopen: {filename}"))
     } else {
         Ok(())
     }
@@ -99,7 +103,7 @@ pub fn insmod(path: &str) -> Result<()> {
     use libc::{syscall, SYS_finit_module};
     let file = match File::open(path) {
         Ok(file) => file,
-        Err(error) => return Err(anyhow!("Failed to open kernel module: {path} ({error})")),
+        Err(error) => return Err(error!("Failed to open kernel module: {path} ({error})")),
     };
     let fd = file.as_raw_fd();
     strerror(unsafe { syscall(SYS_finit_module, fd, &[0u8; 1], 0) }.try_into()?)

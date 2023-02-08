@@ -1,5 +1,5 @@
 use crate::sys::insmod;
-use anyhow::{anyhow, Result};
+use crate::error::{error, Result};
 
 mod sys;
 
@@ -14,7 +14,7 @@ pub fn get_entropy(size: usize) -> Result<Vec<u8>> {
     use nsm_lib::{nsm_get_random, nsm_lib_init};
     let nsm_fd = nsm_lib_init();
     if nsm_fd < 0 {
-        return Err(anyhow!("Failed to connect to NSM device: {nsm_fd}"))
+        return Err(error!("Failed to connect to NSM device: {nsm_fd}"))
     };
     let mut dest = Vec::with_capacity(size);
     while dest.len() < size {
@@ -25,7 +25,7 @@ pub fn get_entropy(size: usize) -> Result<Vec<u8>> {
             ErrorCode::Success => {
                 dest.extend_from_slice(&buf);
             }
-            _ => return Err(anyhow!("Failed to get entropy from NSM device: {status:?}")),
+            _ => return Err(error!("Failed to get entropy from NSM device: {status:?}")),
 
         };
     }

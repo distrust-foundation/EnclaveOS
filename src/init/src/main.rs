@@ -1,12 +1,13 @@
-use anyhow::Result;
-
 mod sys;
 use sys::{freopen, mount, reboot};
 
 mod dmesg;
 use dmesg::{deprintln, dprintln};
 
+mod error;
 mod platforms;
+
+use error::Result;
 
 /// Mount common filesystems with conservative permissions.
 fn init_rootfs() {
