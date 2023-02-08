@@ -1,8 +1,11 @@
 TARGET := generic
 include $(PWD)/src/toolchain/Makefile
 
+CARGO_FEATURES :=
+
 ifeq ($(TARGET), aws)
 DEFAULT_GOAL := $(OUT_DIR)/$(ARCH).eif
+CARGO_FEATURES := --features aws
 else ifeq ($(TARGET), generic)
 DEFAULT_GOAL := $(OUT_DIR)/$(ARCH).bzImage
 endif
@@ -14,11 +17,11 @@ clean: toolchain-clean
 	git clean -dfx $(SRC_DIR)
 
 .PHONY: run
-run: $(OUT_DIR)/bzImage
+run: $(OUT_DIR)/$(ARCH).bzImage
 	qemu-system-x86_64 \
 		-m 512M \
 		-nographic \
-		-kernel $(OUT_DIR)/bzImage
+		-kernel $(OUT_DIR)/$(ARCH).bzImage
 
 .PHONY: linux-config
 linux-config:
@@ -86,11 +89,12 @@ $(CONFIG_DIR)/$(TARGET)/linux.config: \
 $(CACHE_DIR)/linux.config:
 	cp $(CONFIG_DIR)/$(TARGET)/linux.config $@
 
-$(CACHE_DIR)/init:
+$(CACHE_DIR)/init: $(SRC_DIR)/init $(SRC_DIR)/system $(SRC_DIR)/aws
 	$(call toolchain,$(USER)," \
 		cd $(SRC_DIR)/init && \
 		RUSTFLAGS='-C target-feature=+crt-static' cargo build \
 			--target $(ARCH)-unknown-linux-gnu \
+			$(CARGO_FEATURES) \
 			--release && \
 		cd - && \
 		cp \

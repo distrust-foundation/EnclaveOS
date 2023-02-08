@@ -5,9 +5,8 @@ edition = "2021"
 
 [dependencies]
 libc = "0.2.134"
-aws = { path = "../aws"}
+aws = { path = "../aws", optional = true }
 system = { path = "../system"}
-
 
 [[bin]]
 name = "init"
