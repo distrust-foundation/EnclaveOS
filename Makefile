@@ -5,7 +5,7 @@ CARGO_FEATURES :=
 
 ifeq ($(TARGET), aws)
 DEFAULT_GOAL := $(OUT_DIR)/$(ARCH).eif
-CARGO_FEATURES := --features aws
+CARGO_FEATURES := --features platform-aws
 else ifeq ($(TARGET), generic)
 DEFAULT_GOAL := $(OUT_DIR)/$(ARCH).bzImage
 endif
@@ -89,7 +89,7 @@ $(CONFIG_DIR)/$(TARGET)/linux.config: \
 $(CACHE_DIR)/linux.config:
 	cp $(CONFIG_DIR)/$(TARGET)/linux.config $@
 
-$(CACHE_DIR)/init: $(SRC_DIR)/init $(SRC_DIR)/system $(SRC_DIR)/aws
+$(CACHE_DIR)/init: $(SRC_DIR)/init
 	$(call toolchain,$(USER)," \
 		cd $(SRC_DIR)/init && \
 		RUSTFLAGS='-C target-feature=+crt-static' cargo build \

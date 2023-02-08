@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["aws"]
-aws = ["nsm_api", "nsm_lib"]
+default = ["platform-aws"]
+platform-aws = ["nsm_api", "nsm_lib"]
 
 [dependencies]
 libc = "0.2.134"

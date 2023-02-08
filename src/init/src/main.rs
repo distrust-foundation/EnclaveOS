@@ -1,19 +1,18 @@
-mod system;
-use system::{freopen, mount, reboot};
+mod sys;
+use sys::{freopen, mount, reboot};
 
 mod dmesg;
 use dmesg::{println, eprintln};
 
-#[cfg(feature = "aws")]
-mod aws;
+mod platforms;
 
 // TODO: call seed_entropy with a generic source on non-aws targets, maybe by providing get_entropy
 // as an Option<fn> rather than fn.
-#[cfg(feature = "aws")]
-use system::seed_entropy;
+#[cfg(feature = "platform-aws")]
+use sys::seed_entropy;
 
-#[cfg(feature = "aws")]
-use aws::{get_entropy, init_platform};
+#[cfg(feature = "platform-aws")]
+use platforms::aws::{get_entropy, init_platform};
 
 /// Mount common filesystems with conservative permissions.
 fn init_rootfs() {
@@ -67,12 +66,12 @@ fn boot() {
     // TODO: should a failure loading AWS components continue? AWS components are only loaded when
     // building with the AWS target enabled, so by non-AWS usage this component should not be
     // loaded.
-    #[cfg(feature = "aws")]
+    #[cfg(feature = "platform-aws")]
     match init_platform() {
         Ok(_) => println!("Successfully sent Nitro heartbeat and loaded necessary kernel modules"),
         Err(e) => eprintln!("Error when initializing AWS functionality: {e}"),
     }
-    #[cfg(feature = "aws")]
+    #[cfg(feature = "platform-aws")]
     match seed_entropy(4096, get_entropy) {
         Ok(size) => println!("Seeded kernel with entropy: {size}"),
         Err(e) => eprintln!("Unable to seed kernel with entropy: {e}"),
