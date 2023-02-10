@@ -1,4 +1,4 @@
 out/*
 cache/*
 .*
-src/init/target
+src/*/target

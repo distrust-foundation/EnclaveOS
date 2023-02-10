@@ -3,12 +3,11 @@ name = "init"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+platform-aws = ["nsm_api", "nsm_lib"]
+
 [dependencies]
 libc = "0.2.134"
-aws = { path = "../aws"}
-system = { path = "../system"}
-
-
-[[bin]]
-name = "init"
-path = "init.rs"
+nsm_lib = { git = "https://github.com/aws/aws-nitro-enclaves-nsm-api.git/", branch = "main", package="nsm-lib", optional = true }
+nsm_api = { git = "https://github.com/aws/aws-nitro-enclaves-nsm-api.git/", branch = "main", package="aws-nitro-enclaves-nsm-api", optional = true }
