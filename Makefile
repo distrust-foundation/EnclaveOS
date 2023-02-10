@@ -2,10 +2,11 @@ TARGET := generic
 include $(PWD)/src/toolchain/Makefile
 
 CARGO_FEATURES :=
+DEBUG_INIT :=
 
 ifeq ($(TARGET), aws)
 DEFAULT_GOAL := $(OUT_DIR)/$(ARCH).eif
-CARGO_FEATURES := --features platform-aws
+CARGO_FEATURES := $(CARGO_FEATURES) platform-aws
 else ifeq ($(TARGET), generic)
 DEFAULT_GOAL := $(OUT_DIR)/$(ARCH).bzImage
 endif
@@ -94,11 +95,11 @@ $(CACHE_DIR)/init: $(SRC_DIR)/init
 		cd $(SRC_DIR)/init && \
 		RUSTFLAGS='-C target-feature=+crt-static' cargo build \
 			--target $(ARCH)-unknown-linux-gnu \
-			$(CARGO_FEATURES) \
-			--release && \
+			$(if $(CARGO_FEATURES),--features $(CARGO_FEATURES)) \
+			$(if $(DEBUG_INIT),,--release) && \
 		cd - && \
 		cp \
-			$(SRC_DIR)/init/target/$(ARCH)-unknown-linux-gnu/release/init \
+			$(SRC_DIR)/init/target/$(ARCH)-unknown-linux-gnu/$(if $(DEBUG_INIT),debug,release)/init \
 			$@ \
 	")
 

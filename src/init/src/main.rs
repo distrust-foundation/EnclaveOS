@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 mod sys;
 use sys::{freopen, mount, reboot};
 
@@ -55,7 +57,7 @@ fn init_console() {
 }
 
 /// Use a `get_entropy` function (if available) to seed the RNG.
-fn init_entropy() {
+fn init_entropy() -> Result<()> {
     #[allow(unused_mut, unused_assignments, clippy::type_complexity)]
     let mut get_entropy: Option<fn(usize) -> Result<Vec<u8>>> = None;
 
@@ -65,10 +67,32 @@ fn init_entropy() {
     }
 
     if let Some(get_entropy) = get_entropy {
-        match sys::seed_entropy(4096, get_entropy) {
-            Ok(size) => dprintln!("Seeded kernel with entropy: {size}"),
-            Err(e) => deprintln!("Unable to seed kernel with entropy: {e}"),
-        };
+        let size = sys::seed_entropy(4096, get_entropy)?;
+        dprintln!("Seeded kernel with entropy: {size}");
+    }
+
+    Ok(())
+}
+
+fn assert_ok<T, D>(value: Result<T>, context: D) where D: Display + Send + Sync + 'static {
+    if let Err(error) = value.as_ref() {
+        deprintln!("{context}: {error}");
+        #[cfg(not(debug_assertions))]
+        {
+            deprintln!("Unable to recover from above system error, rebooting");
+            reboot();
+        }
+    }
+}
+
+fn assert_ok_or<T, D, F>(value: Result<T>, context_fn: F) where D: Display + Send + Sync + 'static, F: FnOnce() -> D {
+    if let Err(error) = value.as_ref() {
+        deprintln!("{}: {}", context_fn(), error);
+        #[cfg(not(debug_assertions))]
+        {
+            deprintln!("Unable to recover from above system error, rebooting");
+            reboot();
+        }
     }
 }
 
@@ -76,16 +100,9 @@ fn boot() {
     init_rootfs();
     init_console();
 
-    // TODO: should a failure loading AWS components continue? AWS components are only loaded when
-    // building with the AWS target enabled, so by non-AWS usage this component should not be
-    // loaded.
     #[cfg(feature = "platform-aws")]
-    match platforms::aws::init_platform() {
-        Ok(_) => dprintln!("Successfully sent Nitro heartbeat and loaded necessary kernel modules"),
-        Err(e) => deprintln!("Error when initializing AWS functionality: {e}"),
-    }
-
-    init_entropy();
+    assert_ok(platforms::aws::init_platform(), "Error when initializing AWS functionality");
+    assert_ok(init_entropy(), "Unable to seed kernel with entropy");
 }
 
 fn main() {
